@@ -1,0 +1,20 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 90
+    },
+    "auditLog": "D:\\Desktop\\skill-platform-total\\logs\\.f372ea252c1de4e6ce489a45875ee5408054aa7c-audit.json",
+    "files": [
+        {
+            "date": 1765895670348,
+            "name": "D:\\Desktop\\skill-platform-total\\logs\\audit-2025-12-16.log",
+            "hash": "5c191d0c4db5914d2c31836cc49acd125ec745291e5f8b3e65d0413bca3bf7f9"
+        },
+        {
+            "date": 1765937647207,
+            "name": "D:\\Desktop\\skill-platform-total\\logs\\audit-2025-12-17.log",
+            "hash": "669d25b1a02f25b1b47cac2229154ed2eb79a983b64b5c36941ad066925694e0"
+        }
+    ],
+    "hashType": "sha256"
+}

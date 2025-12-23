@@ -1,0 +1,25 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 90
+    },
+    "auditLog": "/home/auser/skill-platform-PartC/logs/.5e7b6d0896221a01be8c35c2a3b771eaf95f5f2b-audit.json",
+    "files": [
+        {
+            "date": 1765368924118,
+            "name": "/home/auser/skill-platform-PartC/logs/audit-2025-12-10.log",
+            "hash": "f89f145fbdbed48792b9e4d38fec15b8908e03e64a2d15cb130bee498e8ec20e"
+        },
+        {
+            "date": 1765528357485,
+            "name": "/home/auser/skill-platform-PartC/logs/audit-2025-12-12.log",
+            "hash": "36fea8e5293dd828148a83f6c2c9364877875a807a6c29a1b9f3f28a93f9e05f"
+        },
+        {
+            "date": 1765556881003,
+            "name": "/home/auser/skill-platform-PartC/logs/audit-2025-12-13.log",
+            "hash": "59dce9b804c00b733af5d6f049115415fd0a8d322892acd0a66e6ec0a917f0c2"
+        }
+    ],
+    "hashType": "sha256"
+}
