@@ -32,23 +32,105 @@ exports.getAllSkills = async (req, res) => {
   }
 };
 
-// ========== 发布技能 ==========
+// modules/skill-task/controllers/skillController.js
 exports.publishSkill = async (req, res) => {
+  // 关键：这里需要获取原始的 connection 以执行非预处理SQL，并确保它在同一个连接上执行事务。
+  // 假设你的 config/database.js 导出了 getConnection 方法。
+  // 如果只有 `query`，稍后我们再调整。
+  const { getConnection } = require('../../../config/database');
+  let connection;
+  
   try {
     const { name, description, category_id, user_id, price, tag_ids } = req.body;
 
-    const tagIdsStr = tag_ids && Array.isArray(tag_ids) ? tag_ids.join(',') : null;
+    // 1. 基本验证
+    if (!name || !category_id || !user_id) {
+      return ResponseHelper.send.validationError(res, '技能名称、分类和发布者不能为空');
+    }
 
-    const result = await callProcedure('publish_skill', [
-      name, description || '', category_id, user_id, price || 0, tagIdsStr, null
-    ]);
+    // 2. 【关键修改】获取一个专属的数据库连接，以便执行事务
+    // 请确保你的 database.js 中有类似 `pool.getConnection()` 的方法
+    // 如果没有，我将提供一个备用方案。
+    const { pool } = require('../../../config/database');
+    connection = await pool.getConnection();
 
-    const skillId = result?.[0]?.[0]?.p_skill_id || Math.floor(Math.random() * 1000);
+    // 3. 使用这个连接开启事务（直接执行，不使用预处理占位符）
+    await connection.query('START TRANSACTION');
 
-    ResponseHelper.send.created(res, { id: skillId }, '技能发布成功');
+    try {
+      // 4. 插入技能主表（这里仍然可以使用预处理，因为它是标准的INSERT）
+      const insertSkillSql = `
+        INSERT INTO skill (name, description, category_id, user_id, price, status)
+        VALUES (?, ?, ?, ?, ?, 1)
+      `;
+      const [skillResult] = await connection.query(insertSkillSql, [
+        name,
+        description || '',
+        category_id,
+        user_id,
+        price || 0.00
+      ]);
+
+      const skillId = skillResult.insertId;
+
+      if (!skillId) {
+        throw new Error('插入技能记录失败，未获取到ID');
+      }
+
+      // 5. 处理标签（如果提供了 tag_ids）
+      if (tag_ids && Array.isArray(tag_ids) && tag_ids.length > 0) {
+        // 过滤、去重，并确保是有效的数字ID
+        const validTagIds = [...new Set(tag_ids.filter(id => Number.isInteger(id) && id > 0))];
+        
+        if (validTagIds.length > 0) {
+          // **安全构建 IN 查询的两种方法**：
+          // 方法A（推荐）：使用多个 (?, ?) 占位符
+          const valuePlaceholders = validTagIds.map(() => `(?, ?)`).join(', ');
+          const insertTagsSql = `
+            INSERT INTO skill_tag_relation (skill_id, tag_id)
+            VALUES ${valuePlaceholders}
+          `;
+          // 准备参数数组：[skillId, tagId1, skillId, tagId2, ...]
+          const tagParams = [];
+          validTagIds.forEach(tagId => {
+            tagParams.push(skillId, tagId);
+          });
+          await connection.query(insertTagsSql, tagParams);
+        }
+      }
+
+      // 6. 提交事务
+      await connection.query('COMMIT');
+      
+      console.log(`✅ 技能发布成功，ID: ${skillId}`);
+      ResponseHelper.send.created(res, { id: skillId }, '技能发布成功');
+
+    } catch (innerError) {
+      // 7. 事务回滚
+      await connection.query('ROLLBACK');
+      // 将内部错误信息传递出去
+      throw innerError;
+    }
+
   } catch (error) {
     console.error('❌ 发布技能失败：', error);
-    ResponseHelper.send.serverError(res, `发布失败：${error.message}`);
+    
+    // 根据错误类型返回更友好的前端提示
+    let userMessage = '发布失败，请稍后重试';
+    if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+      userMessage = '指定的分类或用户不存在，请检查ID是否正确';
+    } else if (error.code === 'ER_DUP_ENTRY') {
+      userMessage = '技能名称可能已存在';
+    } else if (error.message.includes('插入技能记录失败')) {
+      userMessage = '系统未能创建技能记录';
+    }
+    // 注意：这里使用外层的 `res` 参数
+    ResponseHelper.send.serverError(res, `${userMessage}`);
+  } finally {
+    // 8. 【非常重要】无论成功与否，都要释放连接回连接池
+    if (connection) {
+      connection.release();
+    }
   }
 };
 
