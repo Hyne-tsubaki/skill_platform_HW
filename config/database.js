@@ -9,9 +9,9 @@ const mysql = require('mysql2/promise');
 // 1️⃣ Sequelize ORM 实例（Category / Skill / Tag 等模型用）
 // ================================
 const sequelize = new Sequelize(
-  'skill_task_db', // 数据库名
+  'skill_exchange_platform', // 数据库名
   'root',          // 用户名
-  'yjLe0215',      // 密码
+  '123456',      // 密码
   {
     host: 'localhost',
     port: 3306,
@@ -37,8 +37,8 @@ const config = {
   host: 'localhost',
   port: 3306,
   user: 'root',
-  password: 'yjLe0215',
-  database: 'skill_task_db'
+  password: '123456',
+  database: 'skill_exchange_platform'
 };
 
 let pool;

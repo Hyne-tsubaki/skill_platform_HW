@@ -55,7 +55,7 @@ CREATE TABLE user_auth (
     auth_id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT NOT NULL UNIQUE COMMENT '用户ID',
     password_hash VARCHAR(255) NOT NULL COMMENT '加密后的密码',
-    password_salt VARCHAR(50) NOT NULL COMMENT '密码盐值',
+    password_salt VARCHAR(50) NULL DEFAULT '0000' COMMENT '密码盐值',
     email_verified TINYINT(1) DEFAULT 0 NOT NULL COMMENT '邮箱验证状态',
     phone_verified TINYINT(1) DEFAULT 0 NOT NULL COMMENT '手机验证状态',
     verification_token VARCHAR(100) COMMENT '邮箱验证令牌',
@@ -272,14 +272,14 @@ CREATE TABLE user_credit (
 -- =============================================================================
 DELIMITER $$
 
--- 触发器1: 用户注册后自动创建认证记录
-CREATE TRIGGER trg_after_user_insert
-AFTER INSERT ON user
-FOR EACH ROW
-BEGIN
-    INSERT INTO user_auth (user_id, password_hash, password_salt, email_verified, phone_verified, last_password_change)
-    VALUES (NEW.user_id, SHA2(CONCAT(NEW.user_id, RAND(), NOW()), 256), SUBSTRING(MD5(RAND()) FROM 1 FOR 16), 0, 0, NOW());
-END$$
+-- -- 触发器1: 用户注册后自动创建认证记录
+-- CREATE TRIGGER trg_after_user_insert
+-- AFTER INSERT ON user
+-- FOR EACH ROW
+-- BEGIN
+--     INSERT INTO user_auth (user_id, password_hash, password_salt, email_verified, phone_verified, last_password_change)
+--     VALUES (NEW.user_id, SHA2(CONCAT(NEW.user_id, RAND(), NOW()), 256), SUBSTRING(MD5(RAND()) FROM 1 FOR 16), 0, 0, NOW());
+-- END$$
 
 -- 触发器2: 用户状态变更时记录日志并处理锁定
 CREATE TRIGGER trg_after_user_status_update

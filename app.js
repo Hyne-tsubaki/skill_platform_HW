@@ -2,7 +2,7 @@
  * 最终版 app.js（绑定IPv4 + 端口3001 + Sequelize兼容）
  * 路径：app.js
  */
-
+require('dotenv').config();
 const express = require('express');
 const app = express();
 const PORT = 3001;

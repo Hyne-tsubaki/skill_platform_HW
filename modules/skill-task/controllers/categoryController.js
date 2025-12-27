@@ -47,16 +47,22 @@ exports.getSubCategories = async (req, res) => {
 exports.updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, parent_id } = req.body;
+    const { name, parent_id, sort } = req.body;  // 添加sort参数
+    
     if (!id || isNaN(id)) {
       return ResponseHelper.send.validationError(res, [
         { field: 'id', message: 'ID必须为正整数' }
       ]);
     }
-    await query('UPDATE category SET name = ?, parent_id = ? WHERE id = ?', [name, parent_id || null, id]);
+    // 修正：使用正确的字段名 category_id，并添加sort字段更新
+    await query(
+      'UPDATE category SET name = ?, parent_id = ?, sort = ? WHERE category_id = ?', 
+      [name, parent_id || null, sort || 0, id]
+    );
+    
     ResponseHelper.send.updated(res, null, '分类修改成功');
   } catch (err) {
-    console.error(err);
+    console.error('更新分类失败:', err);
     ResponseHelper.send.serverError(res, '修改分类失败');
   }
 };
@@ -69,7 +75,7 @@ exports.deleteCategory = async (req, res) => {
         { field: 'id', message: 'ID必须为正整数' }
       ]);
     }
-    await query('DELETE FROM category WHERE id = ?', [id]);
+    await query('DELETE FROM category WHERE category_id = ?', [id]);
     ResponseHelper.send.deleted(res, '分类删除成功');
   } catch (err) {
     console.error(err);
