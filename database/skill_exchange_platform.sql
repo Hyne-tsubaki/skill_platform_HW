@@ -220,22 +220,38 @@ CREATE TABLE payment (
     INDEX idx_payment_status (payment_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='支付记录表';
 
-CREATE TABLE review (
-    review_id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    order_id BIGINT NOT NULL,
-    reviewer_id BIGINT NOT NULL COMMENT '评价人ID',
-    reviewed_id BIGINT NOT NULL COMMENT '被评价人ID',
-    rating TINYINT NOT NULL COMMENT '1-5星评分',
-    comment TEXT COMMENT '文字评价',
-    review_type TINYINT NOT NULL COMMENT '1-雇主对提供者评价 2-提供者对雇主评价',
-    is_anonymous TINYINT(1) DEFAULT FALSE COMMENT '是否匿名评价',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (order_id) REFERENCES `order`(order_id) ON DELETE CASCADE ON UPDATE CASCADE,
-    FOREIGN KEY (reviewer_id) REFERENCES user(user_id),
-    FOREIGN KEY (reviewed_id) REFERENCES user(user_id),
-    INDEX idx_review_reviewed (reviewed_id),
-    UNIQUE KEY uk_order_reviewer (order_id, reviewer_id, review_type)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评价表';
+CREATE TABLE comment (
+    comment_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_id BIGINT NOT NULL COMMENT '关联的订单ID',
+    user_id BIGINT NOT NULL COMMENT '发表评论的用户ID',
+    parent_comment_id BIGINT DEFAULT NULL COMMENT '父评论ID（用于回复，NULL表示顶级评论）',
+    content TEXT NOT NULL COMMENT '评论内容',
+    is_deleted TINYINT(1) DEFAULT 0 NOT NULL COMMENT '软删除标记：0-正常，1-已删除',
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    -- 外键约束
+    FOREIGN KEY (order_id) REFERENCES `order`(order_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES user(user_id),
+    FOREIGN KEY (parent_comment_id) REFERENCES comment(comment_id) ON DELETE CASCADE,
+    -- 索引
+    INDEX idx_comment_order (order_id),
+    INDEX idx_comment_user (user_id),
+    INDEX idx_comment_parent (parent_comment_id),
+    INDEX idx_comment_created (created_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单评论表';
+
+-- 创建评论回复表
+CREATE TABLE comment_reply (
+    reply_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    comment_id BIGINT NOT NULL COMMENT '被回复的评论ID',
+    user_id BIGINT NOT NULL COMMENT '回复者用户ID',
+    content TEXT NOT NULL COMMENT '回复内容',
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (comment_id) REFERENCES comment(comment_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES user(user_id),
+    INDEX idx_reply_comment (comment_id),
+    INDEX idx_reply_created (created_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评论回复表';
 
 CREATE TABLE log (
     log_id BIGINT PRIMARY KEY AUTO_INCREMENT,

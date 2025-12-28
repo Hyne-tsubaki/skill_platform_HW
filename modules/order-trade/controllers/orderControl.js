@@ -29,106 +29,146 @@ const orderController = {
   // 创建订单
   createOrder: async (req, res) => {
     try {
-      const pool = getPool(); // 在函数内部获取连接池
-      
-      // 从请求体中获取数据
-      const {
-        skill_id,
-        employer_id,
-        provider_id,
-        order_amount,
-        service_time,
-        order_remark
-      } = req.body;
+        const pool = getPool(); // 在函数内部获取连接池
+        const {
+            skill_id,
+            employer_id,
+            provider_id,
+            order_amount,
+            service_time,
+            order_remark
+            // task_id 是可选的，从请求体中获取，如果没有则为NULL
+        } = req.body;
 
-      // ✅ 参数验证 - 统一用 ResponseHelper.send.error 响应
-      if (!skill_id || !employer_id || !provider_id || !order_amount || !service_time) {
-        return ResponseHelper.send.error(
-          res,
-          '缺少必填参数',
-          ResponseHelper.errorCodes.BAD_REQUEST,
-          { missing: ['skill_id', 'employer_id', 'provider_id', 'order_amount', 'service_time'].filter(key => !req.body[key]) }
+        // 基础验证（保持原有逻辑）
+        if (!skill_id || !employer_id || !provider_id || !order_amount || !service_time) {
+            return ResponseHelper.send.error(
+                res,
+                '缺少必填参数',
+                ResponseHelper.errorCodes.BAD_REQUEST,
+                { missing: ['skill_id', 'employer_id', 'provider_id', 'order_amount', 'service_time'].filter(key => !req.body[key]) }
+            );
+        }
+        if (order_amount <= 0) {
+            return ResponseHelper.send.error(
+                res,
+                '订单金额必须大于0',
+                ResponseHelper.errorCodes.BAD_REQUEST,
+                { order_amount: order_amount }
+            );
+        }
+        if (new Date(service_time) <= new Date()) {
+            return ResponseHelper.send.error(
+                res,
+                '服务时间必须是未来时间',
+                ResponseHelper.errorCodes.BAD_REQUEST,
+                { service_time: service_time, current_time: new Date().toISOString() }
+            );
+        }
+
+        // --- 核心修正：准备所有存储过程参数 ---
+        // 1. 定义所有输入参数 (IN)
+        const p_task_id = req.body.task_id || null; // 任务ID是可选的
+        const p_payment_method = 'balance'; // 默认支付方式，可按需调整
+
+        // 2. 为输出参数 (OUT) 定义唯一的会话变量名，避免并发请求间的冲突
+        const timestamp = Date.now();
+        const out_order_no = `@out_order_no_${timestamp}`;
+        const out_payment_no = `@out_payment_no_${timestamp}`;
+        const out_result_code = `@out_result_code_${timestamp}`;
+        const out_message = `@out_message_${timestamp}`;
+
+        // 3. 构建正确的 CALL 语句，包含12个参数（8个输入占位符 + 4个输出变量名）
+        const callSql = `
+            CALL sp_create_order_with_payment(
+                ?,  -- p_skill_id
+                ?,  -- p_employer_id
+                ?,  -- p_provider_id
+                ?,  -- p_order_amount
+                ?,  -- p_service_time
+                ?,  -- p_order_remark
+                ?,  -- p_payment_method
+                ?,  -- p_task_id (可为 NULL)
+                ${out_order_no},      -- p_order_no (OUT)
+                ${out_payment_no},    -- p_payment_no (OUT)
+                ${out_result_code},   -- p_result_code (OUT)
+                ${out_message}        -- p_message (OUT)
+            )
+        `;
+
+        console.log('Executing stored procedure with params:', [skill_id, employer_id, provider_id, order_amount, service_time, order_remark || '', p_payment_method, p_task_id]);
+
+        // 4. 执行存储过程，传入8个输入参数
+        await pool.execute(callSql, [
+            skill_id,
+            employer_id,
+            provider_id,
+            order_amount,
+            service_time,
+            order_remark || '', 
+            p_payment_method,
+            p_task_id
+        ]);
+
+        // 5. 查询存储过程设置的输出参数的值
+        const [outputRows] = await pool.execute(
+            `SELECT 
+                ${out_order_no} as order_no,
+                ${out_payment_no} as payment_no,
+                ${out_result_code} as result_code,
+                ${out_message} as message`
         );
-      }
 
-      // ✅ 金额验证 - 业务错误响应
-      if (order_amount <= 0) {
-        // 修复：ResponseHelper 无 businessError 方法，统一用 error
-        return ResponseHelper.send.error(
-          res,
-          '订单金额必须大于0',
-          ResponseHelper.errorCodes.BAD_REQUEST,
-          { order_amount: order_amount }
+        const output = outputRows[0];
+        console.log('Stored procedure output:', output);
+
+        // 6. 根据存储过程的业务逻辑结果码处理响应
+        const resultCode = output.result_code;
+        const message = output.message;
+
+        if (resultCode !== 0) {
+            // 存储过程内定义的业务逻辑错误（如：技能或用户状态异常）
+            // 注意：这里的 resultCode 是存储过程定义的业务码，不是HTTP状态码
+            return ResponseHelper.send.error(
+                res,
+                message || '订单创建失败',
+                ResponseHelper.errorCodes.BAD_REQUEST, // 或用自定义的4xx状态码
+                { result_code: resultCode }
+            );
+        }
+
+        // 7. 成功响应
+        ResponseHelper.send.created(
+            res,
+            {
+                order_no: output.order_no,
+                payment_no: output.payment_no,
+                // 可选：你也可以返回 result_code 和 message
+            },
+            message || '订单创建成功'
         );
-      }
 
-      // ✅ 服务时间验证 - 业务错误响应
-      if (new Date(service_time) <= new Date()) {
-        return ResponseHelper.send.error(
-          res,
-          '服务时间必须是未来时间',
-          ResponseHelper.errorCodes.BAD_REQUEST,
-          { service_time: service_time, current_time: new Date().toISOString() }
-        );
-      }
-
-      // 调用存储过程创建订单
-      const sql = `CALL sp_create_order_with_payment(?, ?, ?, ?, ?, ?, ?, @order_no, @payment_no)`;
-      
-      // 执行存储过程
-      await pool.execute(sql, [
-        skill_id,
-        employer_id,
-        provider_id,
-        order_amount,
-        service_time,
-        order_remark || '',  // 修复：避免undefined
-        'balance'  // 默认支付方式
-      ]);
-
-      // 获取存储过程的输出参数
-      const [output] = await pool.execute('SELECT @order_no as order_no, @payment_no as payment_no');
-      
-      // ✅ 检查输出参数是否有效
-      if (!output[0]?.order_no || !output[0]?.payment_no) {
-        throw new Error('订单创建失败：未获取到订单号或支付号');
-      }
-      
-      // ✅ 成功响应 - 资源创建用 created（201）
-      ResponseHelper.send.created(
-        res,
-        {
-          order_no: output[0].order_no,
-          payment_no: output[0].payment_no
-        },
-        '订单创建成功'
-      );
-      
     } catch (error) {
-      console.error('创建订单错误:', error);
-      
-      // ✅ 精细化错误处理 - 统一响应格式
-      let errorCode = ResponseHelper.errorCodes.INTERNAL_SERVER_ERROR;
-      let errorMessage = error.message || '服务器内部错误';
-      
-      // 处理特定的数据库错误
-      if (error.code === 'ER_DUP_ENTRY') {
-        errorCode = ResponseHelper.errorCodes.CONFLICT;
-        errorMessage = '订单已存在';
-      } else if (error.code === 'ER_NO_REFERENCED_ROW') {
-        errorCode = ResponseHelper.errorCodes.BAD_REQUEST;
-        errorMessage = '关联的技能或用户不存在';
-      }
-      
-      ResponseHelper.send.error(
-        res,
-        errorMessage,
-        errorCode,
-        { error_code: error.code, stack: process.env.NODE_ENV === 'development' ? error.stack : undefined }
-      );
-    }
-  },
+        console.error('创建订单错误:', error);
+        let errorCode = ResponseHelper.errorCodes.INTERNAL_SERVER_ERROR;
+        let errorMessage = error.message || '服务器内部错误';
 
+        if (error.code === 'ER_SP_WRONG_NO_OF_ARGS') {
+            errorMessage = `调用存储过程参数错误: ${error.message}`;
+        } else if (error.code === 'ER_NO_REFERENCED_ROW') {
+            errorCode = ResponseHelper.errorCodes.BAD_REQUEST;
+            errorMessage = '关联的技能或用户不存在';
+        }
+        // 可以添加更多特定的数据库错误处理
+
+        ResponseHelper.send.error(
+            res,
+            errorMessage,
+            errorCode,
+            { error_code: error.code, stack: process.env.NODE_ENV === 'development' ? error.stack : undefined }
+        );
+    }
+},
   // 根据ID获取订单详情
   getOrderById: async (req, res) => {
     try {

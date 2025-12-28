@@ -25,187 +25,237 @@ function getPool() {
 
 const creditController = {
   // 获取用户信誉信息
-  getUserCredit: async (req, res) => {
-    // 日志模块若不存在可注释
-    // const logContext = {
-    //   operation: 'getUserCredit',
-    //   userId: req.params.userId
-    // };
-
-    try {
-      const pool = getPool();
-      const userId = req.params.userId;
-      
-      // ✅ 修复3：responseHelper调用格式（适配send方法）
-      if (!userId || isNaN(userId)) {
-        // appLogger?.warn('VALIDATION_FAILED', { ...logContext, reason: '用户ID无效' });
-        return responseHelper.send.error(res, '用户ID无效', 400);
-      }
-
-      // appLogger?.info('GET_USER_CREDIT_START', logContext);
-      
-      // 查询用户信誉信息，关联用户表获取用户名和头像
-      const [credits] = await pool.execute(
-        `SELECT uc.*, u.username, u.avatar
-         FROM user_credit uc
-         LEFT JOIN user u ON uc.user_id = u.user_id
-         WHERE uc.user_id = ?`,
+  // 获取用户信誉信息
+getUserCredit: async (req, res) => {
+  try {
+    const pool = getPool();
+    const userId = req.params.userId;
+    
+    if (!userId || isNaN(userId)) {
+      return responseHelper.send.error(res, '用户ID无效', 400);
+    }
+    
+    const [credits] = await pool.execute(
+      `SELECT uc.*, u.username
+       FROM user_credit uc
+       LEFT JOIN user u ON uc.user_id = u.user_id
+       WHERE uc.user_id = ?`,
+      [userId]
+    );
+    
+    if (credits.length === 0) {
+      // 检查用户是否存在
+      const [users] = await pool.execute(
+        'SELECT user_id FROM user WHERE user_id = ?',
         [userId]
       );
       
-      // 检查是否找到用户的信誉记录
-      if (credits.length === 0) {
-        // appLogger?.info('CREDIT_RECORD_NOT_FOUND', logContext);
-        
-        // 先检查用户是否存在
-        const [users] = await pool.execute(
-          'SELECT user_id FROM user WHERE user_id = ?',
-          [userId]
-        );
-        
-        if (users.length === 0) {
-          // appLogger?.warn('USER_NOT_FOUND', logContext);
-          return responseHelper.send.notFound(res, '用户不存在');
-        }
-
-        // 如果用户存在但信誉记录不存在，创建默认记录
-        // appLogger?.info('CREATING_DEFAULT_CREDIT_RECORD', logContext);
-        
-        await pool.execute(
-          `INSERT INTO user_credit 
-           (user_id, credit_score, total_orders, completed_orders, positive_reviews, negative_reviews) 
-           VALUES (?, 80, 0, 0, 0, 0)`, // 默认信誉分80
-          [userId]
-        );
-        
-        // 重新查询新创建的信誉记录
-        const [newCredits] = await pool.execute(
-          'SELECT * FROM user_credit WHERE user_id = ?',
-          [userId]
-        );
-        
-        // appLogger?.info('CREDIT_RECORD_CREATED', { ...logContext, creditId: newCredits[0]?.credit_id });
-        
-        // 添加信誉等级信息
-        const creditWithLevel = {
-          ...newCredits[0],
-          credit_level: calculateCreditLevel(newCredits[0].credit_score)
-        };
-        
-        return responseHelper.send.success(res, creditWithLevel, '获取用户信誉成功');
+      if (users.length === 0) {
+        return responseHelper.send.notFound(res, '用户不存在');
       }
+
+      // 如果用户存在但信誉记录不存在，创建默认记录
+      // ✅ 修复：确保参数类型正确
+      await pool.execute(
+        `INSERT INTO user_credit 
+         (user_id, credit_score, total_orders, completed_orders, positive_reviews, negative_reviews) 
+         VALUES (?, 80.0, 0, 0, 0, 0)`,
+        [parseInt(userId)]  // 确保是整数
+      );
       
-      // 添加信誉等级信息
+      // 重新查询新创建的信誉记录
+      const [newCredits] = await pool.execute(
+        'SELECT * FROM user_credit WHERE user_id = ?',
+        [userId]
+      );
+      
       const creditWithLevel = {
-        ...credits[0],
-        credit_level: calculateCreditLevel(credits[0].credit_score)
+        ...newCredits[0],
+        credit_level: calculateCreditLevel(parseFloat(newCredits[0].credit_score))
       };
       
-      // appLogger?.info('GET_USER_CREDIT_SUCCESS', logContext);
-      
-      // 返回找到的用户信誉信息
-      responseHelper.send.success(res, creditWithLevel, '获取用户信誉成功');
-      
-    } catch (error) {
-      // errorLogger?.error('GET_USER_CREDIT_FAILED', {
-      //   ...logContext,
-      //   errorMessage: error.message,
-      //   errorCode: error.code,
-      //   errorStack: error.stack
-      // });
-      
-      let statusCode = 500;
-      let errorMessage = error.message;
-      
-      // 处理特定的数据库错误
-      if (error.code === 'ER_NO_REFERENCED_ROW') {
-        statusCode = 404;
-        errorMessage = '用户不存在';
-      }
-      
-      responseHelper.send.error(res, errorMessage, statusCode);
+      return responseHelper.send.success(res, creditWithLevel, '获取用户信誉成功');
     }
-  },
+    
+    // 添加信誉等级信息
+    const creditWithLevel = {
+      ...credits[0],
+      credit_level: calculateCreditLevel(parseFloat(credits[0].credit_score))
+    };
+    
+    responseHelper.send.success(res, creditWithLevel, '获取用户信誉成功');
+    
+  } catch (error) {
+    console.error('获取用户信誉时出错详情:', {
+      message: error.message,
+      code: error.code,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage
+    });
+    
+    let statusCode = 500;
+    let errorMessage = error.message;
+    
+    if (error.code === 'ER_NO_REFERENCED_ROW') {
+      statusCode = 404;
+      errorMessage = '用户不存在';
+    }
+    
+    responseHelper.send.error(res, errorMessage, statusCode);
+  }
+},
 
   // 获取信誉排名
-  getCreditRanking: async (req, res) => {
-    // const logContext = {
-    //   operation: 'getCreditRanking',
-    //   queryParams: req.query
-    // };
-
-    try {
-      const pool = getPool(); // ✅ 修复：新增pool获取（原代码缺失）
-      // 从查询参数获取分页信息和过滤条件
-      const { 
-        limit = 10, 
-        page = 1, 
-        min_orders = 0,
-        min_score = 0 
-      } = req.query;
-      
-      // 安全的分页参数处理
-      const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
-      const pageNum = Math.max(1, parseInt(page) || 1);
-      const offset = (pageNum - 1) * limitNum;
-      const minOrders = Math.max(0, parseInt(min_orders) || 0);
-      const minScore = Math.max(0, Math.min(100, parseInt(min_score) || 0));
-      
-      // appLogger?.info('GET_CREDIT_RANKING_START', { ...logContext, processedParams: { limitNum, pageNum, minOrders, minScore } });
-      
-      // 查询信誉排名数据
-      const [ranking] = await pool.execute(
-        `SELECT uc.*, u.username, u.avatar
-         FROM user_credit uc
-         LEFT JOIN user u ON uc.user_id = u.user_id
-         WHERE uc.total_orders >= ? AND uc.credit_score >= ?
-         ORDER BY uc.credit_score DESC, uc.completed_orders DESC
-         LIMIT ? OFFSET ?`,
-        [minOrders, minScore, limitNum, offset]
-      );
-      
-      // 查询总数用于完整分页
-      const [countResult] = await pool.execute(
-        `SELECT COUNT(*) as total 
-         FROM user_credit 
-         WHERE total_orders >= ? AND credit_score >= ?`,
-        [minOrders, minScore]
-      );
-      
-      // 为每个用户添加信誉等级
-      const rankingWithLevel = ranking.map((user, index) => ({
-        ...user,
-        credit_level: calculateCreditLevel(user.credit_score),
-        rank: index + 1 + offset // 计算实际排名（修复indexOf性能问题）
-      }));
-      
-      // appLogger?.info('GET_CREDIT_RANKING_SUCCESS', { ...logContext, totalUsers: countResult[0].total, returnedUsers: ranking.length });
-      
-      responseHelper.send.success(res, {
-        ranking: rankingWithLevel,
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          total: countResult[0].total,
-          pages: Math.ceil(countResult[0].total / limitNum)
-        },
-        filters: {
-          min_orders: minOrders,
-          min_score: minScore
-        }
-      }, '获取信誉排名成功');
-      
-    } catch (error) {
-      // errorLogger?.error('GET_CREDIT_RANKING_FAILED', {
-      //   ...logContext,
-      //   errorMessage: error.message,
-      //   errorCode: error.code,
-      //   errorStack: error.stack
-      // });
-      
-      responseHelper.send.serverError(res, error.message);
+ getCreditRanking: async (req, res) => {
+  try {
+    const pool = getPool();
+    const { 
+      limit = 10, 
+      page = 1, 
+      min_orders = 0,
+      min_score = 0 
+    } = req.query;
+    
+    // 参数处理
+    const limitNum = parseInt(limit) || 10;
+    const pageNum = parseInt(page) || 1;
+    const offset = (pageNum - 1) * limitNum;
+    const minOrders = parseInt(min_orders) || 0;
+    let minScore = parseFloat(min_score);
+    if (isNaN(minScore)) minScore = 0;
+    
+    // ✅ 添加详细的参数输出
+    console.log('================= DEBUG START =================');
+    console.log('原始查询参数:', req.query);
+    console.log('转换后参数:');
+    console.log('  limitNum:', limitNum, '类型:', typeof limitNum);
+    console.log('  pageNum:', pageNum, '类型:', typeof pageNum);
+    console.log('  offset:', offset, '类型:', typeof offset);
+    console.log('  minOrders:', minOrders, '类型:', typeof minOrders);
+    console.log('  minScore:', minScore, '类型:', typeof minScore);
+    
+    // ✅ 测试数据库连接和简单查询
+    console.log('测试数据库连接...');
+    const [testResult] = await pool.execute('SELECT 1 as test');
+    console.log('数据库连接测试成功:', testResult);
+    
+    // ✅ 先执行一个简单的查询测试
+    console.log('执行简单查询测试...');
+    const [simpleQuery] = await pool.execute(
+      'SELECT user_id, credit_score FROM user_credit LIMIT ?',
+      [5]
+    );
+    console.log('简单查询结果:', simpleQuery);
+    
+    // ✅ 逐步构建复杂查询
+    console.log('执行第一步：只使用 WHERE 条件...');
+    const [step1] = await pool.execute(
+      `SELECT uc.*, u.username
+       FROM user_credit uc
+       LEFT JOIN user u ON uc.user_id = u.user_id
+       WHERE uc.total_orders >= ? AND uc.credit_score >= ?
+       LIMIT 5`,
+      [minOrders, minScore]
+    );
+    console.log('第一步结果:', step1);
+    
+    // ✅ 执行完整查询
+    console.log('执行完整查询...');
+    const [ranking] = await pool.execute(
+      `SELECT uc.*, u.username
+       FROM user_credit uc
+       LEFT JOIN user u ON uc.user_id = u.user_id
+       WHERE uc.total_orders >= ? AND uc.credit_score >= ?
+       ORDER BY uc.credit_score DESC, uc.completed_orders DESC
+       LIMIT ? OFFSET ?`,
+      [minOrders, minScore, limitNum, offset]
+    );
+    
+    console.log('查询成功，结果数量:', ranking.length);
+    console.log('================= DEBUG END =================');
+    
+    const [countResult] = await pool.execute(
+      `SELECT COUNT(*) as total 
+       FROM user_credit 
+       WHERE total_orders >= ? AND credit_score >= ?`,
+      [minOrders, minScore]
+    );
+    
+    const total = countResult[0].total;
+    
+    const rankingWithLevel = ranking.map((user, index) => ({
+      ...user,
+      credit_level: calculateCreditLevel(parseFloat(user.credit_score)),
+      rank: offset + index + 1
+    }));
+    
+    responseHelper.send.success(res, {
+      ranking: rankingWithLevel,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: total,
+        pages: Math.ceil(total / limitNum)
+      },
+      filters: {
+        min_orders: minOrders,
+        min_score: minScore
+      }
+    }, '获取信誉排名成功');
+    
+  } catch (error) {
+    console.error('================= ERROR DETAILS =================');
+    console.error('错误消息:', error.message);
+    console.error('错误代码:', error.code);
+    console.error('SQL状态:', error.sqlState);
+    console.error('SQL消息:', error.sqlMessage);
+    console.error('SQL语句:', error.sql);
+    console.error('错误堆栈:', error.stack);
+    console.error('================= ERROR END =================');
+    
+    // 尝试修复参数类型问题
+    if (error.code === 'ER_WRONG_ARGUMENTS') {
+      // 重新尝试查询，确保参数类型正确
+      try {
+        console.log('尝试使用字符串参数重新查询...');
+        const pool = getPool();
+        const { limit = 10, page = 1, min_orders = 0, min_score = 0 } = req.query;
+        
+        const limitNum = parseInt(limit) || 10;
+        const pageNum = parseInt(page) || 1;
+        const offset = (pageNum - 1) * limitNum;
+        const minOrders = parseInt(min_orders) || 0;
+        let minScore = parseFloat(min_score);
+        if (isNaN(minScore)) minScore = 0;
+        
+        // 将所有参数转换为字符串
+        const [ranking] = await pool.execute(
+          `SELECT uc.*, u.username
+           FROM user_credit uc
+           LEFT JOIN user u ON uc.user_id = u.user_id
+           WHERE uc.total_orders >= ? AND uc.credit_score >= ?
+           ORDER BY uc.credit_score DESC, uc.completed_orders DESC
+           LIMIT ? OFFSET ?`,
+          [
+            minOrders.toString(),
+            minScore.toString(),
+            limitNum.toString(),
+            offset.toString()
+          ]
+        );
+        
+        // ... 处理结果
+        
+      } catch (retryError) {
+        console.error('重试也失败:', retryError.message);
+        responseHelper.send.error(res, '数据库查询参数错误', 500);
+      }
+    } else {
+      responseHelper.send.error(res, error.message, 500);
     }
-  },
+  }
+},
+
 
   // 新增：更新用户信誉评分（通常在订单完成或评价后调用）
   updateUserCredit: async (req, res) => {
@@ -272,7 +322,7 @@ const creditController = {
       // 确保分数在0-100之间
       newScore = Math.max(0, Math.min(100, newScore));
       updateFields.credit_score = newScore;
-      updateFields.updated_time = new Date();
+      updateFields.updated_at = new Date();
       
       // 构建动态更新SQL
       const setClause = Object.keys(updateFields)
