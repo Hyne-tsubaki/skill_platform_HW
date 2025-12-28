@@ -182,6 +182,7 @@ CREATE TABLE task (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务信息表';
 
 -- ==================== 模块C：交易与评价管理 ====================
+
 CREATE TABLE `order` (
     order_id BIGINT PRIMARY KEY AUTO_INCREMENT,
     order_no VARCHAR(64) UNIQUE NOT NULL COMMENT '订单编号',
@@ -193,8 +194,9 @@ CREATE TABLE `order` (
     order_status TINYINT NOT NULL DEFAULT 1 COMMENT '1-待支付 2-已支付 3-进行中 4-已完成 5-已取消 6-退款中',
     service_time TIMESTAMP COMMENT '预约服务时间',
     order_remark TEXT COMMENT '订单备注',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted TINYINT DEFAULT 0 NOT NULL COMMENT '软删除标记：0-正常，1-已删除',  -- ✅ 新增
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (skill_id) REFERENCES skill(skill_id),
     FOREIGN KEY (employer_id) REFERENCES user(user_id),
     FOREIGN KEY (provider_id) REFERENCES user(user_id),
@@ -202,7 +204,8 @@ CREATE TABLE `order` (
     INDEX idx_order_employer (employer_id),
     INDEX idx_order_provider (provider_id),
     INDEX idx_order_status (order_status),
-    INDEX idx_order_created (created_at)
+    INDEX idx_order_created (created_time),
+    INDEX idx_is_deleted (is_deleted)  -- ✅ 新增索引
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单表';
 
 CREATE TABLE payment (
@@ -214,11 +217,31 @@ CREATE TABLE payment (
     payment_method VARCHAR(20) COMMENT '支付方式: alipay,wechat,balance',
     payment_time TIMESTAMP COMMENT '支付时间',
     freeze_status TINYINT DEFAULT 1 COMMENT '1-资金冻结 2-已解冻给提供者 3-已退款给雇主',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (order_id) REFERENCES `order`(order_id) ON DELETE CASCADE ON UPDATE CASCADE,
     INDEX idx_payment_order (order_id),
     INDEX idx_payment_status (payment_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='支付记录表';
+
+CREATE TABLE review (
+    review_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_id BIGINT NOT NULL,
+    reviewer_id BIGINT NOT NULL COMMENT '评价人ID',
+    reviewed_id BIGINT NOT NULL COMMENT '被评价人ID',
+    rating TINYINT NOT NULL COMMENT '评分 1-5',
+    comment TEXT COMMENT '评价内容',
+    review_type TINYINT NOT NULL COMMENT '1-雇主对提供者 2-提供者对雇主',
+    is_anonymous TINYINT(1) DEFAULT 0 COMMENT '是否匿名',
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES `order`(order_id) ON DELETE CASCADE,
+    FOREIGN KEY (reviewer_id) REFERENCES user(user_id),
+    FOREIGN KEY (reviewed_id) REFERENCES user(user_id),
+    UNIQUE KEY uk_review_order_type (order_id, review_type, reviewer_id),
+    INDEX idx_review_reviewed (reviewed_id),
+    INDEX idx_review_rating (rating),
+    INDEX idx_review_type (review_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评价表';
 
 CREATE TABLE comment (
     comment_id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -229,18 +252,15 @@ CREATE TABLE comment (
     is_deleted TINYINT(1) DEFAULT 0 NOT NULL COMMENT '软删除标记：0-正常，1-已删除',
     created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_time TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    -- 外键约束
     FOREIGN KEY (order_id) REFERENCES `order`(order_id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES user(user_id),
     FOREIGN KEY (parent_comment_id) REFERENCES comment(comment_id) ON DELETE CASCADE,
-    -- 索引
     INDEX idx_comment_order (order_id),
     INDEX idx_comment_user (user_id),
     INDEX idx_comment_parent (parent_comment_id),
     INDEX idx_comment_created (created_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单评论表';
 
--- 创建评论回复表
 CREATE TABLE comment_reply (
     reply_id BIGINT PRIMARY KEY AUTO_INCREMENT,
     comment_id BIGINT NOT NULL COMMENT '被回复的评论ID',
@@ -253,6 +273,7 @@ CREATE TABLE comment_reply (
     INDEX idx_reply_created (created_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评论回复表';
 
+
 CREATE TABLE log (
     log_id BIGINT PRIMARY KEY AUTO_INCREMENT,
     log_level VARCHAR(10) NOT NULL COMMENT 'INFO, ERROR, WARN, DEBUG',
@@ -264,8 +285,8 @@ CREATE TABLE log (
     ip_address VARCHAR(45) COMMENT 'IP地址',
     request_params JSON COMMENT '请求参数',
     exception_info TEXT COMMENT '异常信息',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_log_level_time (log_level, created_at),
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_log_level_time (log_level, created_time),
     INDEX idx_log_module (module),
     INDEX idx_log_user (user_id),
     INDEX idx_log_type (log_type)
@@ -279,7 +300,7 @@ CREATE TABLE user_credit (
     avg_rating DECIMAL(2,1) DEFAULT 0.0 COMMENT '平均评分',
     positive_reviews INT DEFAULT 0 COMMENT '好评数(4-5星)',
     negative_reviews INT DEFAULT 0 COMMENT '差评数(1-2星)',
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES user(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户信誉表';
 
@@ -342,19 +363,19 @@ BEGIN
          CONCAT('订单状态变更: ', OLD.order_status, ' → ', NEW.order_status, '，订单号: ', NEW.order_no));
         
         IF NEW.order_status = 4 THEN  -- 已完成
-            UPDATE payment SET freeze_status = 2, created_at = CURRENT_TIMESTAMP 
+            UPDATE payment SET freeze_status = 2, created_time = CURRENT_TIMESTAMP 
             WHERE order_id = NEW.order_id AND freeze_status = 1;
             
-            UPDATE user_credit SET completed_orders = completed_orders + 1, updated_at = CURRENT_TIMESTAMP
+            UPDATE user_credit SET completed_orders = completed_orders + 1, updated_time = CURRENT_TIMESTAMP
             WHERE user_id = NEW.provider_id;
             
             INSERT INTO log (log_level, log_type, user_id, module, action, description) VALUES
             ('INFO', 'payment', NEW.provider_id, 'payment_service', 'unfreeze', '资金已解冻给提供者');
         ELSEIF NEW.order_status = 5 THEN  -- 已取消
-            UPDATE payment SET freeze_status = 3, created_at = CURRENT_TIMESTAMP
+            UPDATE payment SET freeze_status = 3, created_time = CURRENT_TIMESTAMP
             WHERE order_id = NEW.order_id AND freeze_status = 1;
         ELSEIF NEW.order_status = 3 THEN  -- 进行中
-            UPDATE user_credit SET total_orders = total_orders + 1, updated_at = CURRENT_TIMESTAMP
+            UPDATE user_credit SET total_orders = total_orders + 1, updated_time = CURRENT_TIMESTAMP
             WHERE user_id IN (NEW.employer_id, NEW.provider_id);
         END IF;
     END IF;
@@ -967,6 +988,9 @@ BEGIN
 END$$
 
 -- ==================== 模块C：交易与评价 ====================
+DELIMITER $$
+
+-- 创建订单与支付的存储过程
 CREATE PROCEDURE sp_create_order_with_payment(
     IN p_skill_id BIGINT,
     IN p_employer_id BIGINT,
@@ -1006,8 +1030,8 @@ BEGIN
     ELSE
         SET p_order_no = CONCAT('ORD', DATE_FORMAT(NOW(), '%Y%m%d%H%i%s'), LPAD(FLOOR(RAND() * 10000), 4, '0'));
         
-        INSERT INTO `order` (order_no, skill_id, employer_id, provider_id, order_amount, service_time, order_remark, task_id)
-        VALUES (p_order_no, p_skill_id, p_employer_id, p_provider_id, p_order_amount, p_service_time, p_order_remark, p_task_id);
+        INSERT INTO `order` (order_no, skill_id, employer_id, provider_id, order_amount, service_time, order_remark, task_id, is_deleted)
+        VALUES (p_order_no, p_skill_id, p_employer_id, p_provider_id, p_order_amount, p_service_time, p_order_remark, p_task_id, 0);
         
         SET v_order_id = LAST_INSERT_ID();
         
@@ -1021,6 +1045,7 @@ BEGIN
         COMMIT;
     END IF;
 END$$
+
 
 CREATE PROCEDURE sp_simulate_payment(
     IN p_payment_id BIGINT,
@@ -1058,6 +1083,8 @@ BEGIN
     END IF;
 END$$
 
+
+-- 创建评价
 CREATE PROCEDURE sp_create_review(
     IN p_order_id BIGINT,
     IN p_reviewer_id BIGINT,
@@ -1112,6 +1139,7 @@ BEGIN
     END IF;
 END$$
 
+-- 更新用户信誉的存储过程
 CREATE PROCEDURE sp_update_user_credit(IN p_user_id BIGINT)
 BEGIN
     DECLARE v_avg_rating DECIMAL(2,1);
@@ -1155,6 +1183,7 @@ BEGIN
         updated_at = CURRENT_TIMESTAMP;
 END$$
 
+DELIMITER ;
 -- ==================== 通用函数 ====================
 CREATE FUNCTION fn_check_user_permission(p_user_id BIGINT, p_permission_code VARCHAR(50)) RETURNS BOOLEAN
 READS SQL DATA
