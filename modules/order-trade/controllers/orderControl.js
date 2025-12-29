@@ -262,10 +262,10 @@ const orderController = {
   getUserOrders: async (req, res) => {
   try {
     const pool = getPool();
-    const userId = req.params.userId;
+    const id = req.params.id;
     const { type = 'all', page = 1, limit = 10 } = req.query;
     
-    if (!userId || isNaN(userId)) {
+    if (!id || isNaN(id)) {
       return ResponseHelper.send.error(res, '用户ID无效', 400);
     }
     
@@ -278,13 +278,13 @@ const orderController = {
     
     if (type === 'employer') {
       whereClause = 'WHERE o.employer_id = ? AND o.is_deleted = 0';
-      params = [userId];
+      params = [id];
     } else if (type === 'provider') {
       whereClause = 'WHERE o.provider_id = ? AND o.is_deleted = 0';
-      params = [userId];
+      params = [id];
     } else if (type === 'all') {
       whereClause = 'WHERE (o.employer_id = ? OR o.provider_id = ?) AND o.is_deleted = 0';
-      params = [userId, userId];
+      params = [id, id];
     } else {
       return ResponseHelper.send.error(res, '类型参数必须是 employer、provider 或 all', 400);
     }
@@ -310,7 +310,7 @@ const orderController = {
           o.updated_time as updated_at,  -- 使用别名
           p.payment_status, 
           p.payment_time, 
-          s.title as skill_title
+          s.name as skill_title
          FROM \`order\` o 
          LEFT JOIN payment p ON o.order_id = p.order_id 
          LEFT JOIN skill s ON o.skill_id = s.skill_id
@@ -648,9 +648,9 @@ const orderController = {
   getUserOrderStats: async (req, res) => {
     try {
       const pool = getPool();
-      const userId = req.params.userId;
+      const id = req.params.id;
       
-      if (!userId || isNaN(userId)) {
+      if (!id || isNaN(id)) {
         return ResponseHelper.send.error(res, '用户ID无效', 400);
       }
       
@@ -662,7 +662,7 @@ const orderController = {
           COALESCE(AVG(CASE WHEN order_status = 4 THEN order_amount ELSE NULL END), 0) as avg_order_amount
         FROM \`order\`
         WHERE employer_id = ? AND is_deleted = 0
-      `, [userId]);
+      `, [id]);
       
       ResponseHelper.send.success(
         res,

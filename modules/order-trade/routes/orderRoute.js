@@ -71,8 +71,8 @@ router.put('/:id/start-service', validateIdParam, orderController.startService);
 router.put('/:id/complete-service', validateIdParam, orderController.completeService); // 完成服务（ID校验）
 
 // 用户相关订单
-router.get('/user/:userId', validateIdParam, orderController.getUserOrders);            // 获取用户订单列表（用户ID校验）
-router.get('/user/:userId/stats', validateIdParam, orderController.getUserOrderStats);  // 用户订单统计（用户ID校验）
+router.get('/user/:id', validateIdParam, orderController.getUserOrders);            // 获取用户订单列表（用户ID校验）
+router.get('/user/:id/stats', validateIdParam, orderController.getUserOrderStats);  // 用户订单统计（用户ID校验）
 
 // 订单删除（软删除）
 router.delete('/:id', validateIdParam, orderController.deleteOrder);                   // 删除订单（ID校验）
